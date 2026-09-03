@@ -127,7 +127,7 @@ class PaymentNotificationWatch(Base):
     customer_id: Mapped[str] = mapped_column(Text, nullable=False)
     customer_name: Mapped[str] = mapped_column(Text, nullable=False)
     amount: Mapped[float] = mapped_column(Float, nullable=False)
-    channel: Mapped[str] = mapped_column(Text, nullable=False)  # whatsapp | twilio | test
+    channel: Mapped[str] = mapped_column(Text, nullable=False)  # whatsapp | test
     merchant_whatsapp_number: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(Text, nullable=False, default="watching")  # watching | notified
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
@@ -146,7 +146,7 @@ class GatewayActivityLog(Base):
     )
     whatsapp_number: Mapped[str] = mapped_column(Text, index=True, nullable=False)
     merchant_id: Mapped[str] = mapped_column(Text, nullable=True)
-    channel: Mapped[str] = mapped_column(Text, nullable=False)  # whatsapp | twilio | test
+    channel: Mapped[str] = mapped_column(Text, nullable=False)  # whatsapp | test
     incoming_message: Mapped[str] = mapped_column(Text, nullable=True)
     resolved_intent: Mapped[dict] = mapped_column(JSONB, nullable=True)
     tool_name: Mapped[str] = mapped_column(Text, nullable=True)

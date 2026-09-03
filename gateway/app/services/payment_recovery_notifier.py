@@ -26,21 +26,18 @@ from sqlalchemy import select
 from app.mcp import mini_razorpay_mcp_client as mcp_client
 from app.models import MerchantDirectoryEntry, PaymentNotificationWatch
 from app.services import merchant_auth_service
-from app.twilio.client import send_text_message as _send_twilio_message
 from app.whatsapp.client import send_text_message as _send_meta_message
 
 logger = logging.getLogger(__name__)
 
 
 async def _send_on_channel(channel: str, to: str, body: str) -> None:
-    """Reuses the exact same per-channel outbound clients every merchant
+    """Reuses the exact same per-channel outbound client every merchant
     reply already goes through — the only difference here is the
-    recipient. Meta expects a bare digit string (no "+"), unlike Twilio's
-    "whatsapp:+E164"; Mini-Razorpay's Customer.phone is stored with a "+",
-    so it's normalized per-channel here, not upstream."""
-    if channel == "twilio":
-        await _send_twilio_message(to, body)
-    elif channel == "whatsapp":
+    recipient. Meta expects a bare digit string (no "+"); Mini-Razorpay's
+    Customer.phone is stored with a "+", so it's normalized here, not
+    upstream."""
+    if channel == "whatsapp":
         await _send_meta_message(to.lstrip("+"), body)
     else:
         logger.info("[%s channel has no real outbound send] Would message %s: %s", channel, to, body)

@@ -69,22 +69,6 @@ class Settings(BaseSettings):
     whatsapp_verify_token: str = ""
     whatsapp_graph_api_version: str = "v21.0"
 
-    # Twilio WhatsApp — a second, independent WhatsApp channel alongside Meta
-    # (see app/twilio/ and app/routes/twilio_webhook.py). Same short-circuit
-    # convention as the Meta block above: the webhook route mounts
-    # regardless, but outbound sends stay inert until this is explicitly
-    # enabled AND real Twilio credentials are set.
-    twilio_enabled_raw: str = Field(default="false", validation_alias="TWILIO_ENABLED_RAW")
-    twilio_account_sid: str = ""
-    twilio_auth_token: str = ""
-    twilio_whatsapp_number: str = ""  # E.164, no "whatsapp:" prefix — e.g. "+14155238886"
-    # Only needed if a reverse proxy (e.g. ngrok, a load balancer) rewrites
-    # the scheme/host before it reaches this app — Twilio's signature is
-    # computed over the exact public URL it called, so if request.url won't
-    # match that (common behind proxies that don't forward X-Forwarded-Proto),
-    # set the real public webhook URL here to validate against instead.
-    twilio_webhook_url_override: str = ""
-
     # /test/message exercises the full pipeline (identity resolution, the
     # real LLM call, and real MCP/Mini-Razorpay tool calls) with no
     # authentication of its own — safe for local development, but it must
@@ -143,10 +127,6 @@ class Settings(BaseSettings):
     @property
     def whatsapp_enabled(self) -> bool:
         return parse_bool_fail_closed(self.whatsapp_enabled_raw)
-
-    @property
-    def twilio_enabled(self) -> bool:
-        return parse_bool_fail_closed(self.twilio_enabled_raw)
 
     @property
     def enable_test_endpoint(self) -> bool:

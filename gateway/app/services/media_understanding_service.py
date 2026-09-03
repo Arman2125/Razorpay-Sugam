@@ -9,9 +9,9 @@ originated as typed input or a Gemini transcript.
 Gemini is never used for text reasoning or tool selection here — see
 config.py's comments on openai_* vs gemini_* settings for the enforced
 split. This module is channel-agnostic (raw bytes + a MIME type in, plain
-text or None out) so any channel's webhook could reuse it unchanged; only
-the Twilio webhook does today (see app/twilio/media_fetcher.py for the
-Twilio-specific part: authenticated download of the media bytes)."""
+text or None out) so any channel's webhook can reuse it unchanged — a
+webhook only needs its own authenticated media download to produce the
+raw bytes this module expects."""
 
 import logging
 from typing import Optional

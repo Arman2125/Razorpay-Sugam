@@ -1,7 +1,7 @@
 """payment_recovery_notifier.py is the piece that closes the loop Mini-Razorpay
 itself can't be modified to support: messaging the customer directly after a
 reminder, and polling for the merchant confirmation once paid. Every
-external call (MCP, Twilio, Meta) is mocked — none of this needs live
+external call (MCP, Meta) is mocked — none of this needs live
 credentials or a live database to verify."""
 
 from datetime import datetime, timezone
@@ -146,16 +146,6 @@ async def test_unexpected_exception_is_caught_and_returns_false(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_send_on_channel_routes_twilio(monkeypatch):
-    mock_twilio = AsyncMock()
-    monkeypatch.setattr(notifier, "_send_twilio_message", mock_twilio)
-
-    await notifier._send_on_channel("twilio", "+919820011111", "hello")
-
-    mock_twilio.assert_awaited_once_with("+919820011111", "hello")
-
-
-@pytest.mark.asyncio
 async def test_send_on_channel_routes_meta_and_strips_plus(monkeypatch):
     mock_meta = AsyncMock()
     monkeypatch.setattr(notifier, "_send_meta_message", mock_meta)
@@ -167,14 +157,11 @@ async def test_send_on_channel_routes_meta_and_strips_plus(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_send_on_channel_test_channel_is_a_safe_noop(monkeypatch):
-    mock_twilio = AsyncMock()
     mock_meta = AsyncMock()
-    monkeypatch.setattr(notifier, "_send_twilio_message", mock_twilio)
     monkeypatch.setattr(notifier, "_send_meta_message", mock_meta)
 
     await notifier._send_on_channel("test", "+919820011111", "hello")  # must not raise
 
-    mock_twilio.assert_not_called()
     mock_meta.assert_not_called()
 
 

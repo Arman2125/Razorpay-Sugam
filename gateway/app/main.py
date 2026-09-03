@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from app.config import settings
 from app.db import AsyncSessionLocal
 from app.mcp.mini_razorpay_mcp_client import close_persistent_mcp_session
-from app.routes import health, test_message, twilio_webhook, whatsapp_webhook
+from app.routes import health, test_message, whatsapp_webhook
 from app.services import directory_sync_service, payment_recovery_notifier
 
 logging.basicConfig(level=getattr(logging, settings.log_level, logging.INFO), stream=sys.stdout, force=True)
@@ -51,4 +51,3 @@ app.include_router(health.router)
 if settings.enable_test_endpoint:
     app.include_router(test_message.router)
 app.include_router(whatsapp_webhook.router)
-app.include_router(twilio_webhook.router)

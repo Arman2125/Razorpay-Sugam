@@ -11,8 +11,8 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-# Environment variables — real credentials (OpenAI/Gemini keys, Twilio/Meta
-# tokens, database URL, Postgres connection strings), never commit. Template
+# Environment variables — real credentials (OpenAI/Gemini keys, Meta
+# WhatsApp tokens, database URL, Postgres connection strings), never commit. Template
 # files are explicitly un-ignored below — they hold no real secrets and must
 # stay tracked as the setup reference (see gateway/.env.example).
 .env
