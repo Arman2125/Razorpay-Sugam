@@ -22,12 +22,96 @@ logger = logging.getLogger(__name__)
 
 DEMO_MERCHANTS_URL = f"{settings.mini_razorpay_base_url}/auth/demo-merchants"
 
+# Mini-Razorpay's demo-merchants endpoint has been observed returning a
+# transient 429 on some requests while a direct retry moments later
+# succeeds (confirmed 200 with real data) — i.e. it isn't down, just
+# occasionally rate-limiting. A small, bounded retry here absorbs that
+# without leaving the local merchant directory empty for a full 300-second
+# periodic-loop cycle. Deliberately small and bounded: this runs
+# synchronously on startup (main.py's lifespan) before the app accepts
+# traffic, so it must never block for long.
+_MAX_SYNC_ATTEMPTS = 3
+_BACKOFF_BASE_SECONDS = 1.0
+_MAX_BACKOFF_SECONDS = 8.0
+_MAX_RETRY_AFTER_SECONDS = 15.0
+
+
+def _parse_retry_after_seconds(response: httpx.Response) -> float | None:
+    """Returns a bounded, non-negative delay from the response's
+    Retry-After header, or None if it's absent or not a plain
+    delta-seconds integer/float (the HTTP-date form is not handled — no
+    rate limiter this gateway talks to has ever sent one)."""
+    raw = response.headers.get("Retry-After")
+    if not raw:
+        return None
+    try:
+        seconds = float(raw)
+    except ValueError:
+        return None
+    if seconds < 0:
+        return None
+    return min(seconds, _MAX_RETRY_AFTER_SECONDS)
+
+
+def _backoff_delay_seconds(attempt: int) -> float:
+    """Bounded exponential backoff used only when the 429 response gave no
+    Retry-After: 1s, 2s, 4s, ... capped at _MAX_BACKOFF_SECONDS."""
+    return min(_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)), _MAX_BACKOFF_SECONDS)
+
+
+async def _fetch_demo_merchants() -> dict:
+    """GETs Mini-Razorpay's demo-merchants endpoint, retrying a transient
+    HTTP 429 up to _MAX_SYNC_ATTEMPTS times (honoring the response's own
+    Retry-After when present and reasonable, else a bounded exponential
+    backoff). Any other error status is raised immediately, exactly as
+    before — this only changes behavior for a 429. If every attempt is
+    429'd, the final response's raise_for_status() raises the same
+    httpx.HTTPStatusError sync_once always raised on failure, so callers
+    (sync_once's caller in main.py's lifespan, and run_periodic) keep
+    treating a fully-exhausted retry exactly like the old single-shot
+    failure — logged and non-fatal."""
+    response: httpx.Response | None = None
+    for attempt in range(1, _MAX_SYNC_ATTEMPTS + 1):
+        logger.info(
+            "Merchant directory sync attempt %d/%d: GET %s", attempt, _MAX_SYNC_ATTEMPTS, DEMO_MERCHANTS_URL
+        )
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(DEMO_MERCHANTS_URL)
+
+        if response.status_code != 429:
+            response.raise_for_status()
+            if attempt > 1:
+                logger.info(
+                    "Merchant directory sync succeeded on attempt %d/%d after retrying", attempt, _MAX_SYNC_ATTEMPTS
+                )
+            return response.json()
+
+        if attempt == _MAX_SYNC_ATTEMPTS:
+            logger.warning(
+                "Merchant directory sync: HTTP 429 on final attempt %d/%d — giving up for this cycle",
+                attempt, _MAX_SYNC_ATTEMPTS,
+            )
+            break
+
+        retry_after = _parse_retry_after_seconds(response)
+        if retry_after is not None:
+            delay, source = retry_after, "Retry-After header"
+        else:
+            delay, source = _backoff_delay_seconds(attempt), "backoff"
+
+        logger.warning(
+            "Merchant directory sync: HTTP 429 (attempt %d/%d) — retrying in %.1fs (%s)",
+            attempt, _MAX_SYNC_ATTEMPTS, delay, source,
+        )
+        await asyncio.sleep(delay)
+
+    # Every attempt was a 429 — raise the same exception type/shape a
+    # single-shot 429 always raised, so nothing downstream needs to change.
+    response.raise_for_status()
+
 
 async def sync_once(session: AsyncSession) -> int:
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        response = await client.get(DEMO_MERCHANTS_URL)
-        response.raise_for_status()
-        body = response.json()
+    body = await _fetch_demo_merchants()
 
     merchants = body.get("data", [])
     seen_merchant_ids: set[str] = set()
