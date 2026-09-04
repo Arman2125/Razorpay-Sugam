@@ -101,6 +101,36 @@ class ConversationState(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class ConversationMessage(Base):
+    """
+    The generic, capability-agnostic multi-turn conversation transcript — one
+    row per OpenAI-format message (user / assistant / tool) exchanged with a
+    WhatsApp number, replayed as real chat history on the next message so the
+    LLM reasons over what it already asked/was told instead of seeing every
+    message in isolation. Deliberately NOT one row per "slot" or per
+    capability — it stores what actually happened in the conversation, not a
+    hand-built representation of any one tool's arguments. See
+    app/services/conversation_history_service.py for the read/write/
+    reconstruction logic and app/config.py for the retention/size limits.
+
+    tool_name + tool_arguments are set only on an assistant row that made a
+    tool call (reconstructed as that message's tool_calls); tool_call_id is
+    set on that same assistant row and mirrored onto the paired tool-result
+    row, exactly matching OpenAI's own multi-turn tool-calling message shape.
+    """
+
+    __tablename__ = "conversation_messages"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    whatsapp_number: Mapped[str] = mapped_column(Text, index=True, nullable=False)
+    role: Mapped[str] = mapped_column(Text, nullable=False)  # user | assistant | tool
+    content: Mapped[str] = mapped_column(Text, nullable=True)
+    tool_call_id: Mapped[str] = mapped_column(Text, nullable=True)
+    tool_name: Mapped[str] = mapped_column(Text, nullable=True)
+    tool_arguments: Mapped[dict] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, index=True)
+
+
 class PaymentNotificationWatch(Base):
     """
     Tracks a pending payment whose reminder also messaged the customer

@@ -72,6 +72,8 @@ async def test_mcp_exception_propagates_for_the_outer_handler_to_catch(monkeypat
     monkeypatch.setattr(message_processor.conversation_state_service, "get_active_state", AsyncMock(return_value=None))
     fake_merchant = MagicMock(merchant_id="M1")
     monkeypatch.setattr(message_processor.identity_service, "resolve_merchant", AsyncMock(return_value=fake_merchant))
+    monkeypatch.setattr(message_processor.conversation_history_service, "get_recent_messages", AsyncMock(return_value=[]))
+    monkeypatch.setattr(message_processor.conversation_history_service, "record_user_message", AsyncMock())
     monkeypatch.setattr(
         message_processor.intent_service,
         "select_tool",
@@ -89,6 +91,9 @@ async def test_merchant_auth_failure_returns_safe_message_without_exposing_inter
     monkeypatch.setattr(message_processor.conversation_state_service, "get_active_state", AsyncMock(return_value=None))
     fake_merchant = MagicMock(merchant_id="M1")
     monkeypatch.setattr(message_processor.identity_service, "resolve_merchant", AsyncMock(return_value=fake_merchant))
+    monkeypatch.setattr(message_processor.conversation_history_service, "get_recent_messages", AsyncMock(return_value=[]))
+    monkeypatch.setattr(message_processor.conversation_history_service, "record_user_message", AsyncMock())
+    monkeypatch.setattr(message_processor.conversation_history_service, "record_assistant_reply", AsyncMock())
     monkeypatch.setattr(
         message_processor.intent_service,
         "select_tool",

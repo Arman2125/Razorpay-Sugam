@@ -54,7 +54,25 @@ Never invent a paymentId, customerId, amount, or any other data value that \
 was not given to you by the user or by a previous tool result already shown \
 to you in this conversation. If a tool result says a request was ambiguous \
 with several candidates, you will not be asked to pick one — that is handled \
-outside of you; do not attempt to resolve it yourself."""
+outside of you; do not attempt to resolve it yourself.
+
+You will typically also be shown the actual recent messages of this \
+conversation — your own earlier questions and tool calls, their results, and \
+what the merchant said in response — immediately before their newest message. \
+Use that real history, not any fixed rule, to understand the newest message \
+in context: if it answers something you asked, combine it with whatever was \
+already established earlier in the conversation before deciding whether you \
+now have enough information to call a tool. If it corrects or changes a \
+detail from what was just discussed (e.g. a different amount or a different \
+person), apply that correction to the same unfinished request rather than \
+starting over or asking again for details already given. If it plainly moves \
+on to something unrelated to whatever was still pending, treat it as a new \
+request on its own terms and let the unfinished one drop — never force a \
+reply to continue a request the merchant has clearly abandoned. If it reads \
+as a confirmation (e.g. "yes", "go ahead", "do it") of whatever you most \
+recently proposed in that history, proceed using the details already \
+established rather than asking again. Judge all of this from the actual \
+conversation shown to you, never from a fixed list of trigger words."""
 
 
 @dataclasses.dataclass
@@ -62,6 +80,7 @@ class ToolSelection:
     tool_name: Optional[str]
     arguments: dict
     reply_text: Optional[str]  # set when no tool was called (no_tool outcome)
+    tool_call_id: Optional[str] = None  # OpenAI's own id for the tool call, if one was made
 
 
 def _strip_hidden(schema: dict) -> dict:
@@ -107,12 +126,17 @@ async def _get_tool_schemas() -> list[dict]:
     return _cached_schemas
 
 
-async def select_tool(message: str, context: Optional[str] = None) -> ToolSelection:
+async def select_tool(message: str, history: Optional[list[dict]] = None) -> ToolSelection:
+    """history, when given, is the actual recent conversation with this
+    number — already reconstructed into OpenAI's own message shape by
+    conversation_history_service.get_recent_messages() — spliced in ahead of
+    the new message so the model reasons over real prior turns rather than
+    treating every message as an isolated request."""
     tools = await _get_tool_schemas()
 
     messages: list[dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT}]
-    if context:
-        messages.append({"role": "system", "content": context})
+    if history:
+        messages.extend(history)
     messages.append({"role": "user", "content": message})
 
     return await _select_tool_openai(messages, tools)
@@ -134,6 +158,6 @@ async def _select_tool_openai(messages: list[dict], tools: list[dict]) -> ToolSe
         except json.JSONDecodeError:
             logger.warning("OpenAI returned non-JSON tool arguments: %r", call.function.arguments)
             arguments = {}
-        return ToolSelection(tool_name=call.function.name, arguments=arguments, reply_text=None)
+        return ToolSelection(tool_name=call.function.name, arguments=arguments, reply_text=None, tool_call_id=call.id)
 
     return ToolSelection(tool_name=None, arguments={}, reply_text=choice.content or "")

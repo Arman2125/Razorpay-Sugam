@@ -12,7 +12,13 @@ call process_user_message() with the same signature):
      against its own stored candidates only.
   2. No pending state -> resolve merchant identity from the phone number.
      Unresolved -> decline, no LLM call.
-  3. intent_service.select_tool() -> genuine LLM semantic understanding.
+  3. Fetch the recent conversation_messages transcript (see
+     conversation_history_service.py) and hand it to
+     intent_service.select_tool() alongside the new message -> genuine LLM
+     semantic understanding with real multi-turn context, not an isolated
+     message. Every branch below records what actually happened (the user's
+     message, an assistant reply, or an assistant tool call + its result)
+     back into that same transcript so the next message can see it.
   4. Get the merchant's own JWT, call the selected MCP tool.
   5. Inspect the structured result: ambiguous / known error / success /
      unrecognized -> format the appropriate reply.
@@ -28,6 +34,7 @@ from datetime import datetime
 from app.db import AsyncSessionLocal
 from app.models import GatewayActivityLog
 from app.services import (
+    conversation_history_service,
     conversation_state_service,
     identity_service,
     intent_service,
@@ -96,27 +103,64 @@ async def _process(session, whatsapp_number: str, message: str, channel: str) ->
     if merchant is None:
         return ProcessResult(reply=response_formatting.format_declined_unregistered(), outcome="declined")
 
-    # ---- Step 3: genuine LLM intent understanding ----
-    selection = await intent_service.select_tool(message)
+    # ---- Step 3: genuine LLM intent understanding, given the real recent
+    # conversation — this is what lets the LLM complete an earlier unfinished
+    # request, apply a correction, recognize a task switch, or treat "yes" as
+    # confirmation of whatever it just proposed, purely from context, with no
+    # keyword rule anywhere in this codebase. ----
+    history = await conversation_history_service.get_recent_messages(session, whatsapp_number)
+    selection = await intent_service.select_tool(message, history=history)
+    await conversation_history_service.record_user_message(session, whatsapp_number, message)
 
     if selection.tool_name is None:
-        return ProcessResult(reply=selection.reply_text or "Okay.", outcome="no_tool")
+        reply = selection.reply_text or "Okay."
+        await conversation_history_service.record_assistant_reply(session, whatsapp_number, reply)
+        return ProcessResult(reply=reply, outcome="no_tool")
 
     # ---- Step 4: get the merchant's own JWT, execute the tool ----
     try:
         token = await merchant_auth_service.get_jwt(session, merchant)
     except merchant_auth_service.MerchantAuthError as e:
-        return ProcessResult(reply=f"I couldn't verify your merchant account right now: {e.message}", outcome="error")
+        reply = f"I couldn't verify your merchant account right now: {e.message}"
+        await conversation_history_service.record_assistant_reply(session, whatsapp_number, reply)
+        return ProcessResult(reply=reply, outcome="error")
 
     arguments = dict(selection.arguments)
     if selection.tool_name in _IDEMPOTENT_TOOLS:
         arguments.setdefault("idempotency_key", f"wa:{whatsapp_number}:{uuid.uuid4().hex}")
 
-    tool_result = await mcp_client.call_tool(selection.tool_name, arguments, token)
-
-    return await _handle_tool_result(
-        session, whatsapp_number, selection.tool_name, arguments, tool_result, channel=channel, merchant=merchant, token=token
+    return await _execute_tool_and_record(
+        session, whatsapp_number, selection.tool_call_id, selection.tool_name, arguments, token,
+        channel=channel, merchant=merchant,
     )
+
+
+async def _execute_tool_and_record(
+    session,
+    whatsapp_number: str,
+    tool_call_id: str,
+    tool_name: str,
+    arguments: dict,
+    token: str,
+    *,
+    channel: str,
+    merchant,
+) -> ProcessResult:
+    """Shared by the LLM-driven path and the deterministic candidate-resolution
+    path (_resolve_pending_state): executes the tool, records the assistant
+    tool-call + tool-result exchange, formats the outcome, and records the
+    final human-readable reply — so the next message's replayed history shows
+    the complete exchange, not just the raw tool result."""
+    tool_result = await mcp_client.call_tool(tool_name, arguments, token)
+    await conversation_history_service.record_tool_exchange(
+        session, whatsapp_number, tool_call_id, tool_name, arguments, tool_result
+    )
+
+    result = await _handle_tool_result(
+        session, whatsapp_number, tool_name, arguments, tool_result, channel=channel, merchant=merchant, token=token
+    )
+    await conversation_history_service.record_assistant_reply(session, whatsapp_number, result.reply)
+    return result
 
 
 async def _handle_tool_result(
@@ -191,13 +235,18 @@ async def _resolve_pending_state(session, whatsapp_number: str, state, message: 
     tool_name = state.payload["tool_name"]
 
     index = conversation_state_service.parse_candidate_index(message, len(candidates))
+    await conversation_history_service.record_user_message(session, whatsapp_number, message)
 
     if index is None:
         attempts = await conversation_state_service.increment_attempts(session, state)
         if attempts >= 3:
             await conversation_state_service.expire_state(session, state)
-            return ProcessResult(reply=response_formatting.format_reprompt_expired(), outcome="declined")
-        return ProcessResult(reply=response_formatting.format_reprompt(), outcome="ambiguous", tool_name=tool_name)
+            reply = response_formatting.format_reprompt_expired()
+            await conversation_history_service.record_assistant_reply(session, whatsapp_number, reply)
+            return ProcessResult(reply=reply, outcome="declined")
+        reply = response_formatting.format_reprompt()
+        await conversation_history_service.record_assistant_reply(session, whatsapp_number, reply)
+        return ProcessResult(reply=reply, outcome="ambiguous", tool_name=tool_name)
 
     chosen = candidates[index]
     merged_arguments = dict(state.payload["original_arguments"])
@@ -217,14 +266,23 @@ async def _resolve_pending_state(session, whatsapp_number: str, state, message: 
 
     merchant = await identity_service.resolve_merchant(session, whatsapp_number)
     if merchant is None:
-        return ProcessResult(reply=response_formatting.format_declined_unregistered(), outcome="declined")
+        reply = response_formatting.format_declined_unregistered()
+        await conversation_history_service.record_assistant_reply(session, whatsapp_number, reply)
+        return ProcessResult(reply=reply, outcome="declined")
 
     try:
         token = await merchant_auth_service.get_jwt(session, merchant)
     except merchant_auth_service.MerchantAuthError as e:
-        return ProcessResult(reply=f"I couldn't verify your merchant account right now: {e.message}", outcome="error")
+        reply = f"I couldn't verify your merchant account right now: {e.message}"
+        await conversation_history_service.record_assistant_reply(session, whatsapp_number, reply)
+        return ProcessResult(reply=reply, outcome="error")
 
-    tool_result = await mcp_client.call_tool(tool_name, merged_arguments, token)
-    return await _handle_tool_result(
-        session, whatsapp_number, tool_name, merged_arguments, tool_result, channel=channel, merchant=merchant, token=token
+    # No real OpenAI call happened here (this is the deterministic
+    # candidate-index path) — synthesize a local tool_call_id so the
+    # recorded exchange still has the id a replayed "tool" message must
+    # reference, matching OpenAI's own multi-turn message shape.
+    tool_call_id = f"local:{uuid.uuid4().hex}"
+    return await _execute_tool_and_record(
+        session, whatsapp_number, tool_call_id, tool_name, merged_arguments, token,
+        channel=channel, merchant=merchant,
     )

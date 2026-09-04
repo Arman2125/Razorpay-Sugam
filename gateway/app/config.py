@@ -96,6 +96,17 @@ class Settings(BaseSettings):
     conversation_state_ttl_seconds: int = 600
     conversation_state_max_attempts: int = 3
 
+    # Generic multi-turn conversation memory (app/services/conversation_history_service.py)
+    # — the actual OpenAI-format transcript per WhatsApp number, replayed to
+    # the LLM on every message so it can reason over what it already asked/
+    # was told, rather than seeing each message in isolation. Bounded on both
+    # axes (time and turn count) so context never grows unbounded; tool
+    # results are additionally truncated before being stored so one large
+    # list response doesn't balloon every subsequent turn's token cost.
+    conversation_history_ttl_seconds: int = 1800
+    conversation_history_max_turns: int = 20
+    conversation_history_max_tool_result_chars: int = 2000
+
     log_level: str = "INFO"
     python_env: str = "development"
 
