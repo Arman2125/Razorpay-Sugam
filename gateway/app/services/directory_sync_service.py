@@ -78,10 +78,14 @@ async def sync_once(session: AsyncSession) -> int:
 
 
 async def run_periodic(session_factory, interval_seconds: int) -> None:
+    # The caller (main.py's lifespan) already performs one synchronous sync
+    # before this task starts, so the loop sleeps first — otherwise every
+    # startup fires two syncs back-to-back (that duplicate burst is what
+    # tripped Mini-Razorpay's 429 on deploy).
     while True:
+        await asyncio.sleep(interval_seconds)
         try:
             async with session_factory() as session:
                 await sync_once(session)
         except Exception:
             logger.exception("Merchant directory sync failed — will retry next interval")
-        await asyncio.sleep(interval_seconds)
