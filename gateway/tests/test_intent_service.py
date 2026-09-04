@@ -12,6 +12,21 @@ from app.services import intent_service
 
 
 class _FakeTool:
+    """Mirrors the real mcp>=2.0.0 mcp.types.Tool shape (input_schema,
+    snake_case) — this is what's actually deployed. See _FakeToolLegacy
+    below for the pre-2.0 shape (inputSchema, camelCase)."""
+
+    def __init__(self, name, description, input_schema):
+        self.name = name
+        self.description = description
+        self.input_schema = input_schema
+
+
+class _FakeToolLegacy:
+    """Mirrors mcp<2.0's Tool shape — no input_schema attribute at all,
+    only the old camelCase inputSchema. Proves _input_schema() still works
+    against an SDK that predates the 2.x rename."""
+
     def __init__(self, name, description, input_schema):
         self.name = name
         self.description = description
@@ -118,3 +133,15 @@ def test_select_tool_gemini_function_no_longer_exists():
     # Enforces the architecture at the code level: there must be no code
     # path in this module that can hand reasoning/tool-selection to Gemini.
     assert not hasattr(intent_service, "_select_tool_gemini")
+
+
+def test_build_tool_schemas_reads_current_mcp_2x_input_schema_field():
+    tool = _FakeTool("get_payments_summary", "desc", {"type": "object", "properties": {}})
+
+    assert intent_service._input_schema(tool) == {"type": "object", "properties": {}}
+
+
+def test_build_tool_schemas_falls_back_to_legacy_mcp_1x_input_schema_field():
+    tool = _FakeToolLegacy("get_payments_summary", "desc", {"type": "object", "properties": {}})
+
+    assert intent_service._input_schema(tool) == {"type": "object", "properties": {}}

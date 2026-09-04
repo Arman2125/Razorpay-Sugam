@@ -72,6 +72,16 @@ def _strip_hidden(schema: dict) -> dict:
     return schema
 
 
+def _input_schema(tool) -> dict:
+    """mcp 2.x renamed Tool.inputSchema (the 1.x name) to Tool.input_schema.
+    Read whichever this installed SDK actually provides rather than assuming
+    one — mcp>=2.0.0 is an open floor, and this exact rename is what broke
+    every real message in production when the resolved version moved from
+    1.x to 2.x with no code change here."""
+    input_schema = getattr(tool, "input_schema", None)
+    return input_schema if input_schema is not None else tool.inputSchema
+
+
 async def _build_tool_schemas() -> list[dict]:
     mcp_tools = await mcp_client.list_tools()
     return [
@@ -80,7 +90,7 @@ async def _build_tool_schemas() -> list[dict]:
             "function": {
                 "name": t.name,
                 "description": t.description or "",
-                "parameters": _strip_hidden(t.inputSchema),
+                "parameters": _strip_hidden(_input_schema(t)),
             },
         }
         for t in mcp_tools
