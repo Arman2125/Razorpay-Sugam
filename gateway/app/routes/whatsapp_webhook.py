@@ -13,6 +13,8 @@ import logging
 from fastapi import APIRouter, Request, Response
 
 from app.config import settings
+from app.db import AsyncSessionLocal
+from app.services import whatsapp_dedup_service
 from app.services.message_processor import process_user_message
 from app.whatsapp.client import mark_message_as_read, send_text_message
 from app.whatsapp.webhook_security import verify_signature
@@ -61,6 +63,16 @@ async def receive_webhook(request: Request):
 
         message_id = msg.get("id")
         if message_id:
+            async with AsyncSessionLocal() as session:
+                is_new = await whatsapp_dedup_service.mark_seen(session, message_id)
+            if not is_new:
+                # Meta's Cloud API delivers at-least-once and, in practice,
+                # can POST the same message_id more than once within
+                # seconds via different edge nodes — without this check
+                # each redelivery re-runs the full LLM+MCP pipeline and
+                # sends the merchant the same reply multiple times.
+                logger.info("Skipping duplicate WhatsApp webhook delivery for message_id=%s", message_id)
+                continue
             await mark_message_as_read(message_id)
 
         result = await process_user_message(from_number, text, channel="whatsapp")

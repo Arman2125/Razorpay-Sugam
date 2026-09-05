@@ -164,6 +164,26 @@ class PaymentNotificationWatch(Base):
     notified_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class WhatsAppProcessedMessage(Base):
+    """
+    Dedup guard against Meta's at-least-once webhook delivery: the Cloud API
+    can (and, per production logs, reliably does) POST the exact same
+    inbound message more than once within seconds — a burst of duplicate
+    deliveries from different Meta edge nodes, not a second message from the
+    user. message_id is Meta's own per-message id (wamid), unique per
+    inbound message, so recording it here BEFORE running the real pipeline
+    lets a same-id redelivery be recognized and skipped instead of silently
+    re-running the full LLM + MCP + outbound-send pipeline and sending the
+    merchant the same reply multiple times. See
+    app/services/whatsapp_dedup_service.py.
+    """
+
+    __tablename__ = "whatsapp_processed_messages"
+
+    message_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
 class GatewayActivityLog(Base):
     """Our own audit trail — distinct from Mini-Razorpay's own Activity
     collection, which we never write to directly."""
