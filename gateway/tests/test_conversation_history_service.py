@@ -99,6 +99,33 @@ async def test_get_recent_messages_reconstructs_tool_result():
     session.scalars = AsyncMock(
         return_value=MagicMock(
             all=MagicMock(
+                return_value=[
+                    # query orders newest-first; tool row is written after
+                    # (and so is newer than) its paired assistant row
+                    _row(role="tool", tool_call_id="call_abc", content='{"success": true}'),
+                    _row(role="assistant", tool_call_id="call_abc", tool_name="create_payment_link", tool_arguments={"amount": 5000}),
+                ]
+            )
+        )
+    )
+
+    messages = await history_service.get_recent_messages(session, "+919876543210")
+
+    assert messages[-1] == {"role": "tool", "tool_call_id": "call_abc", "content": '{"success": true}'}
+
+
+@pytest.mark.asyncio
+async def test_get_recent_messages_strips_leading_orphaned_tool_row():
+    """The row-count LIMIT in get_recent_messages can land between a stored
+    tool-call/tool-result pair, trimming the older assistant "tool_calls" row
+    while keeping the newer "tool" row. Sending that orphaned tool message to
+    OpenAI is rejected outright (400: "messages with role 'tool' must be a
+    response to a preceeding message with 'tool_calls'"), so it must be
+    stripped rather than returned as-is."""
+    session = MagicMock()
+    session.scalars = AsyncMock(
+        return_value=MagicMock(
+            all=MagicMock(
                 return_value=[_row(role="tool", tool_call_id="call_abc", content='{"success": true}')]
             )
         )
@@ -106,7 +133,7 @@ async def test_get_recent_messages_reconstructs_tool_result():
 
     messages = await history_service.get_recent_messages(session, "+919876543210")
 
-    assert messages == [{"role": "tool", "tool_call_id": "call_abc", "content": '{"success": true}'}]
+    assert messages == []
 
 
 @pytest.mark.asyncio

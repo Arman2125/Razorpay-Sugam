@@ -95,7 +95,21 @@ async def get_recent_messages(session: AsyncSession, whatsapp_number: str) -> li
     ).all()
 
     rows = list(reversed(rows))  # oldest-first for correct chat ordering
-    return [_to_openai_message(row) for row in rows]
+    messages = [_to_openai_message(row) for row in rows]
+
+    # The row-count LIMIT above can land between a tool-call/tool-result
+    # pair (they're stored as two rows, see record_tool_exchange), trimming
+    # the older assistant "tool_calls" row while keeping the newer "tool"
+    # row. That leaves a leading orphaned tool message, which OpenAI rejects
+    # outright ("messages with role 'tool' must be a response to a
+    # preceeding message with 'tool_calls'"). An orphan can only ever be at
+    # the front of this list — the pair's assistant half is always older —
+    # so strip any leading tool message(s) rather than send an invalid
+    # transcript.
+    while messages and messages[0]["role"] == "tool":
+        messages.pop(0)
+
+    return messages
 
 
 async def _prune_expired(session: AsyncSession, whatsapp_number: str) -> None:

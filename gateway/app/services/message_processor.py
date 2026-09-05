@@ -69,6 +69,7 @@ async def process_user_message(whatsapp_number: str, message: str, channel: str 
             result = await _process(session, whatsapp_number, message, channel)
         except Exception:
             logger.exception("Unhandled error processing message from %s", whatsapp_number)
+            await session.rollback()
             result = ProcessResult(
                 reply=await llm_fallback_formatter.generate_fallback_reply(),
                 outcome="error",

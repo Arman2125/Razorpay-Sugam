@@ -14,7 +14,7 @@ from fastapi import APIRouter, Request, Response
 
 from app.config import settings
 from app.services.message_processor import process_user_message
-from app.whatsapp.client import send_text_message
+from app.whatsapp.client import mark_message_as_read, send_text_message
 from app.whatsapp.webhook_security import verify_signature
 
 logger = logging.getLogger(__name__)
@@ -58,6 +58,10 @@ async def receive_webhook(request: Request):
         text = (msg.get("text") or {}).get("body", "")
         if not from_number or not text:
             continue
+
+        message_id = msg.get("id")
+        if message_id:
+            await mark_message_as_read(message_id)
 
         result = await process_user_message(from_number, text, channel="whatsapp")
         await send_text_message(from_number, result.reply)
