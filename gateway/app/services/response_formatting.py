@@ -115,11 +115,27 @@ def format_tool_success(tool_name: str, result: dict) -> str:
             lines.append(f"…and *{len(items) - MAX_LIST_ITEMS}* more.")
         return "\n".join(lines)
 
-    if tool_name == "search_payments" or tool_name == "search_customers":
+    if tool_name == "search_payments":
         items = result.get("items", [])
         if not items:
             return "🔍 No matches found."
-        return f"🔍 Found *{len(items)}* match(es)."
+        lines = [f"🔍 Found *{len(items)}* match(es):"]
+        for p in items[:MAX_LIST_ITEMS]:
+            lines.append(f"• {_fmt_amount(p.get('amount'))} — {p.get('status')}, due {_fmt_date(p.get('dueDate'))}")
+        if len(items) > MAX_LIST_ITEMS:
+            lines.append(f"…and *{len(items) - MAX_LIST_ITEMS}* more.")
+        return "\n".join(lines)
+
+    if tool_name == "search_customers":
+        items = result.get("items", [])
+        if not items:
+            return "🔍 No matches found."
+        lines = [f"🔍 Found *{len(items)}* match(es):"]
+        for c in items[:MAX_LIST_ITEMS]:
+            lines.append(f"• *{c.get('name')}* — pending {_fmt_amount(c.get('pendingAmount', 0))}")
+        if len(items) > MAX_LIST_ITEMS:
+            lines.append(f"…and *{len(items) - MAX_LIST_ITEMS}* more.")
+        return "\n".join(lines)
 
     if tool_name == "get_payment" or tool_name == "get_payment_status":
         p = result.get("payment", {})
