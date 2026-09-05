@@ -54,7 +54,7 @@ async def test_reminder_reply_is_unchanged_when_customer_notification_fails(monk
         MagicMock(), "+919876543210", "send_payment_reminder", {}, tool_result, channel="twilio", merchant=merchant, token="fake.jwt"
     )
 
-    assert result.reply == "Reminder sent."
+    assert result.reply == "✅ *Reminder sent.*"
 
 
 @pytest.mark.asyncio
@@ -90,4 +90,4 @@ async def test_missing_merchant_or_token_skips_notification_without_raising(monk
 
     mock_notify.assert_not_called()
     assert result.outcome == "success"
-    assert result.reply == "Reminder sent."
+    assert result.reply == "✅ *Reminder sent.*"

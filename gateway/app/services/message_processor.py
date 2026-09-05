@@ -246,7 +246,7 @@ async def _handle_tool_result(
                     customer_id=customer_id,
                 )
                 if notified:
-                    reply = "Reminder sent — I've also messaged the customer directly with a payment link."
+                    reply = "✅ Reminder sent — I've also 📩 messaged the customer directly with a payment link."
 
         return ProcessResult(reply=reply, outcome="success", tool_name=tool_name)
 
