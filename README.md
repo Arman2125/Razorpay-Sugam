@@ -89,6 +89,32 @@ curl -X POST http://127.0.0.1:8100/test/message \
 
 See `RUNBOOK.md` for connecting real Meta WhatsApp credentials later, and `scripts/mcp_smoke_test.py` / `scripts/e2e_scenarios.py` for end-to-end verification against the real backend.
 
+## Mini-Razorpay capabilities exposed via MCP
+
+`mcp-servers/mini-razorpay-mcp/server.py` exposes Mini-Razorpay's REST API as MCP tools. Every tool takes an `access_token` argument — the caller's per-merchant JWT, injected server-side by `message_processor.py` from `merchant_auth_service.py`, never something the LLM invents, sees as a credential, or can override with a different merchant's identity. No tool anywhere in this server accepts a `merchantId`/`merchant_id` argument.
+
+| Domain | READ tools | WRITE tools |
+|---|---|---|
+| Payments | `search_payments`, `get_payment`, `get_payment_status`, `get_pending_payments`, `get_pending_payments_priority`, `get_overdue_payments`, `get_payments_summary` | `update_payment_status` |
+| Reminders | — | `send_payment_reminder` |
+| Payment Links | `get_payment_links`, `get_payment_link` | `create_payment_link`, `cancel_payment_link` |
+| Customers | `search_customers`, `get_customer` | — |
+| Refunds | `get_refund`, `get_refunds`, `get_payment_refunds`, `get_refundable_amount` | `create_refund` |
+| Orders | `get_order`, `get_orders` | `create_order`, `update_order_status` |
+| Invoices | `get_invoice`, `get_invoices` | `create_invoice`, `update_invoice`, `issue_invoice`, `mark_invoice_paid`, `cancel_invoice` |
+| Subscriptions | `get_subscription`, `get_subscriptions` | `create_subscription`, `pause_subscription`, `resume_subscription`, `cancel_subscription`, `process_due_subscriptions` |
+| Analytics | `get_analytics` | — |
+| Settlements | `get_settlements_summary`, `get_settlement` | — |
+| Activity/Audit | `get_activity` | — |
+
+Financial semantics worth calling out explicitly:
+
+- **Mini-Razorpay is the sole source of truth for financial state.** Sugam never computes a refundable balance, a subscription's next billing date, or any other financial figure itself — it only ever relays what Mini-Razorpay's API returns, and never accesses MongoDB directly.
+- **Refunds** can never exceed a payment's refundable balance — Mini-Razorpay rejects an over-refund with `REFUND_EXCEEDS_BALANCE`; Sugam surfaces that rejection as-is rather than retrying with a smaller guessed amount. A refund never changes the underlying payment's own status.
+- **Orders/Invoices** follow Mini-Razorpay's own lifecycle state machines exactly (e.g. an invoice can only be edited while `draft`, and `issue_invoice`/`mark_invoice_paid`/`cancel_invoice` are thin wrappers around the same `PATCH .../status` endpoint with a fixed target status) — Sugam never invents a transition Mini-Razorpay doesn't allow.
+- **Subscriptions have no automatic billing.** Mini-Razorpay runs no background scheduler or cron job — a subscription's due cycle is only ever billed when `process_due_subscriptions` is explicitly invoked (itself merchant-scoped and safe to call repeatedly; already-billed cycles are never double-billed). Listing subscriptions, checking their status, or asking what's due (`get_subscriptions`, `get_subscription`) never bills anything — `intent_service.py`'s system prompt explicitly instructs the model to only call `process_due_subscriptions` on a clear, explicit request to process/run/bill due subscriptions, never as a side effect of a read question.
+- **Customer-name ambiguity** on `create_payment_link`, `create_order`, `create_invoice`, and `create_subscription` is resolved the same deterministic way for all four: Mini-Razorpay itself returns `409 AMBIGUOUS_CUSTOMER` with a candidate list when a name matches more than one customer, the MCP client converts that into `{"ambiguous": true, "candidates": [...]}`, and `conversation_state_service.py` stores it and asks the user to pick a number — never resolved by the LLM guessing.
+
 ## Supported WhatsApp channel
 
 | | Meta WhatsApp Cloud API |

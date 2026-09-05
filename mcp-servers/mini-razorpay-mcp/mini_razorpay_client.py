@@ -29,6 +29,12 @@ REMINDERS_PATH = "/reminders"
 PAYMENT_LINKS_PATH = "/payment-links"
 CUSTOMERS_PATH = "/customers"
 SETTLEMENTS_PATH = "/settlements"
+REFUNDS_PATH = "/refunds"
+ORDERS_PATH = "/orders"
+INVOICES_PATH = "/invoices"
+SUBSCRIPTIONS_PATH = "/subscriptions"
+ANALYTICS_SUMMARY_PATH = "/analytics/summary"
+ACTIVITY_PATH = "/activity"
 
 # Ambiguity is a correct, expected outcome from these two endpoints — never an error.
 _AMBIGUITY_CODES = {"AMBIGUOUS_PAYMENT", "AMBIGUOUS_CUSTOMER"}
@@ -210,5 +216,298 @@ class MiniRazorpayClient:
 
     # ---- Settlements ----
 
-    async def get_settlements(self, token: str) -> dict:
-        return await self._request("GET", SETTLEMENTS_PATH, token=token)
+    async def get_settlements(
+        self,
+        token: str,
+        *,
+        status: Optional[str] = None,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
+    ) -> dict:
+        params = {k: v for k, v in {"status": status, "from": date_from, "to": date_to}.items() if v is not None}
+        return await self._request("GET", SETTLEMENTS_PATH, token=token, params=params or None)
+
+    async def get_settlement(self, token: str, settlement_id: str) -> dict:
+        return await self._request("GET", f"{SETTLEMENTS_PATH}/{settlement_id}", token=token)
+
+    # ---- Refunds ----
+
+    async def create_refund(
+        self,
+        token: str,
+        *,
+        payment_id: str,
+        amount: float,
+        reason: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> dict:
+        body = {
+            k: v for k, v in {"paymentId": payment_id, "amount": amount, "reason": reason}.items() if v is not None
+        }
+        return await self._request("POST", REFUNDS_PATH, token=token, json_body=body, idempotency_key=idempotency_key)
+
+    async def get_refund(self, token: str, refund_id: str) -> dict:
+        return await self._request("GET", f"{REFUNDS_PATH}/{refund_id}", token=token)
+
+    async def get_refunds(
+        self,
+        token: str,
+        *,
+        status: Optional[str] = None,
+        payment_id: Optional[str] = None,
+        customer_id: Optional[str] = None,
+        page: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> dict:
+        params = {
+            k: v
+            for k, v in {
+                "status": status,
+                "paymentId": payment_id,
+                "customerId": customer_id,
+                "page": page,
+                "limit": limit,
+            }.items()
+            if v is not None
+        }
+        return await self._request("GET", REFUNDS_PATH, token=token, params=params or None)
+
+    async def get_payment_refunds(self, token: str, payment_id: str) -> list[dict]:
+        return await self._request("GET", f"{PAYMENTS_PATH}/{payment_id}/refunds", token=token)
+
+    async def get_refundable_amount(self, token: str, payment_id: str) -> dict:
+        return await self._request("GET", f"{PAYMENTS_PATH}/{payment_id}/refundable", token=token)
+
+    # ---- Orders ----
+
+    async def create_order(
+        self,
+        token: str,
+        *,
+        amount: float,
+        customer_id: Optional[str] = None,
+        customer_name: Optional[str] = None,
+        currency: Optional[str] = None,
+        receipt: Optional[str] = None,
+        notes: Optional[dict] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> dict:
+        body = {
+            k: v
+            for k, v in {
+                "customerId": customer_id,
+                "customerName": customer_name,
+                "amount": amount,
+                "currency": currency,
+                "receipt": receipt,
+                "notes": notes,
+            }.items()
+            if v is not None
+        }
+        return await self._request("POST", ORDERS_PATH, token=token, json_body=body, idempotency_key=idempotency_key)
+
+    async def get_order(self, token: str, order_id: str) -> dict:
+        return await self._request("GET", f"{ORDERS_PATH}/{order_id}", token=token)
+
+    async def get_orders(
+        self,
+        token: str,
+        *,
+        status: Optional[str] = None,
+        customer_id: Optional[str] = None,
+        page: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> dict:
+        params = {
+            k: v
+            for k, v in {"status": status, "customerId": customer_id, "page": page, "limit": limit}.items()
+            if v is not None
+        }
+        return await self._request("GET", ORDERS_PATH, token=token, params=params or None)
+
+    async def update_order_status(
+        self, token: str, order_id: str, status: str, payment_id: Optional[str] = None
+    ) -> dict:
+        body = {k: v for k, v in {"status": status, "paymentId": payment_id}.items() if v is not None}
+        return await self._request("PATCH", f"{ORDERS_PATH}/{order_id}/status", token=token, json_body=body)
+
+    # ---- Invoices ----
+
+    async def create_invoice(
+        self,
+        token: str,
+        *,
+        amount: float,
+        customer_id: Optional[str] = None,
+        customer_name: Optional[str] = None,
+        order_id: Optional[str] = None,
+        currency: Optional[str] = None,
+        description: Optional[str] = None,
+        due_date: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> dict:
+        body = {
+            k: v
+            for k, v in {
+                "customerId": customer_id,
+                "customerName": customer_name,
+                "orderId": order_id,
+                "amount": amount,
+                "currency": currency,
+                "description": description,
+                "dueDate": due_date,
+            }.items()
+            if v is not None
+        }
+        return await self._request("POST", INVOICES_PATH, token=token, json_body=body, idempotency_key=idempotency_key)
+
+    async def get_invoice(self, token: str, invoice_id: str) -> dict:
+        return await self._request("GET", f"{INVOICES_PATH}/{invoice_id}", token=token)
+
+    async def get_invoices(
+        self,
+        token: str,
+        *,
+        status: Optional[str] = None,
+        customer_id: Optional[str] = None,
+        page: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> dict:
+        params = {
+            k: v
+            for k, v in {"status": status, "customerId": customer_id, "page": page, "limit": limit}.items()
+            if v is not None
+        }
+        return await self._request("GET", INVOICES_PATH, token=token, params=params or None)
+
+    async def update_invoice_fields(
+        self,
+        token: str,
+        invoice_id: str,
+        *,
+        amount: Optional[float] = None,
+        description: Optional[str] = None,
+        due_date: Optional[str] = None,
+    ) -> dict:
+        body = {
+            k: v for k, v in {"amount": amount, "description": description, "dueDate": due_date}.items() if v is not None
+        }
+        return await self._request("PATCH", f"{INVOICES_PATH}/{invoice_id}", token=token, json_body=body)
+
+    async def update_invoice_status(
+        self, token: str, invoice_id: str, status: str, payment_id: Optional[str] = None
+    ) -> dict:
+        body = {k: v for k, v in {"status": status, "paymentId": payment_id}.items() if v is not None}
+        return await self._request("PATCH", f"{INVOICES_PATH}/{invoice_id}/status", token=token, json_body=body)
+
+    # ---- Subscriptions ----
+
+    async def create_subscription(
+        self,
+        token: str,
+        *,
+        amount: float,
+        interval: str,
+        customer_id: Optional[str] = None,
+        customer_name: Optional[str] = None,
+        plan_id: Optional[str] = None,
+        currency: Optional[str] = None,
+        interval_count: Optional[int] = None,
+        start_at: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> dict:
+        body = {
+            k: v
+            for k, v in {
+                "customerId": customer_id,
+                "customerName": customer_name,
+                "planId": plan_id,
+                "amount": amount,
+                "currency": currency,
+                "interval": interval,
+                "intervalCount": interval_count,
+                "startAt": start_at,
+            }.items()
+            if v is not None
+        }
+        return await self._request(
+            "POST", SUBSCRIPTIONS_PATH, token=token, json_body=body, idempotency_key=idempotency_key
+        )
+
+    async def get_subscription(self, token: str, subscription_id: str) -> dict:
+        return await self._request("GET", f"{SUBSCRIPTIONS_PATH}/{subscription_id}", token=token)
+
+    async def get_subscriptions(
+        self,
+        token: str,
+        *,
+        status: Optional[str] = None,
+        customer_id: Optional[str] = None,
+        page: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> dict:
+        params = {
+            k: v
+            for k, v in {"status": status, "customerId": customer_id, "page": page, "limit": limit}.items()
+            if v is not None
+        }
+        return await self._request("GET", SUBSCRIPTIONS_PATH, token=token, params=params or None)
+
+    async def update_subscription_status(
+        self, token: str, subscription_id: str, status: str, at_cycle_end: Optional[bool] = None
+    ) -> dict:
+        body = {k: v for k, v in {"status": status, "atCycleEnd": at_cycle_end}.items() if v is not None}
+        return await self._request(
+            "PATCH", f"{SUBSCRIPTIONS_PATH}/{subscription_id}/status", token=token, json_body=body
+        )
+
+    async def process_due_subscriptions(self, token: str) -> dict:
+        return await self._request("POST", f"{SUBSCRIPTIONS_PATH}/process-due", token=token, json_body={})
+
+    # ---- Analytics ----
+
+    async def get_analytics_summary(self, token: str) -> dict:
+        return await self._request("GET", ANALYTICS_SUMMARY_PATH, token=token)
+
+    # ---- Activity ----
+
+    async def get_activity(
+        self,
+        token: str,
+        *,
+        action: Optional[str] = None,
+        entity_type: Optional[str] = None,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
+        page: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> dict:
+        params = {
+            k: v
+            for k, v in {
+                "action": action,
+                "entityType": entity_type,
+                "from": date_from,
+                "to": date_to,
+                "page": page,
+                "limit": limit,
+            }.items()
+            if v is not None
+        }
+        return await self._request("GET", ACTIVITY_PATH, token=token, params=params or None)
+
+    # ---- Payment Links (list/get/status) ----
+
+    async def get_payment_links(
+        self, token: str, *, status: Optional[str] = None, customer_id: Optional[str] = None
+    ) -> list[dict]:
+        params = {k: v for k, v in {"status": status, "customerId": customer_id}.items() if v is not None}
+        return await self._request("GET", PAYMENT_LINKS_PATH, token=token, params=params or None)
+
+    async def get_payment_link(self, token: str, payment_link_id: str) -> dict:
+        return await self._request("GET", f"{PAYMENT_LINKS_PATH}/{payment_link_id}", token=token)
+
+    async def update_payment_link_status(self, token: str, payment_link_id: str, status: str) -> dict:
+        return await self._request(
+            "PATCH", f"{PAYMENT_LINKS_PATH}/{payment_link_id}/status", token=token, json_body={"status": status}
+        )

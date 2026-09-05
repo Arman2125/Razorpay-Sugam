@@ -50,8 +50,25 @@ logger = logging.getLogger(__name__)
 # Tools whose write is worth an idempotency key — generated fresh server-side
 # per new logical action, never supplied or invented by the LLM. Re-used
 # unchanged across clarification retries of the SAME action (see step 1),
-# so a resolved ambiguous call is still deduped correctly if retried.
-_IDEMPOTENT_TOOLS = {"send_payment_reminder", "create_payment_link"}
+# so a resolved ambiguous call is still deduped correctly if retried. Every
+# tool here maps to a Mini-Razorpay create endpoint that itself honors an
+# Idempotency-Key header — PATCH-style status-change tools (e.g.
+# update_order_status, pause_subscription) are deliberately excluded since
+# Mini-Razorpay does not key idempotency off those endpoints.
+_IDEMPOTENT_TOOLS = {
+    "send_payment_reminder",
+    "create_payment_link",
+    "create_refund",
+    "create_order",
+    "create_invoice",
+    "create_subscription",
+}
+
+# Tools whose customer-name lookup can come back {"ambiguous": true, ...}
+# from Mini-Razorpay (AMBIGUOUS_CUSTOMER) — the candidate merge logic in
+# _resolve_pending_state below applies the same customer_id substitution to
+# all of them.
+_CUSTOMER_AMBIGUOUS_TOOLS = {"create_payment_link", "create_order", "create_invoice", "create_subscription"}
 
 
 @dataclass
@@ -193,6 +210,12 @@ async def _handle_tool_result(
         known_codes = {
             "DUPLICATE_REMINDER", "INVALID_TRANSITION", "INVALID_STATUS", "INVALID_AMOUNT",
             "PAYMENT_NOT_FOUND", "CUSTOMER_NOT_FOUND", "NO_STATE_CHANGE",
+            "MISSING_PAYMENT_ID", "MISSING_AMOUNT", "MISSING_CUSTOMER_IDENTIFIER",
+            "MISSING_INTERVAL", "INVALID_INTERVAL", "PAYMENT_NOT_PAID",
+            "REFUND_EXCEEDS_BALANCE", "REFUND_NOT_FOUND",
+            "ORDER_NOT_FOUND", "INVOICE_NOT_FOUND", "INVOICE_NOT_DRAFT",
+            "SUBSCRIPTION_NOT_FOUND", "SETTLEMENT_NOT_FOUND",
+            "ALREADY_PAID", "LINK_NOT_ACTIVE", "PENDING_PAYMENT_NOT_FOUND",
         }
         if code in known_codes:
             reply = response_formatting.format_known_error(code, tool_result.get("message", ""))
@@ -259,7 +282,7 @@ async def _resolve_pending_state(session, whatsapp_number: str, state, message: 
         merged_arguments.pop("customer_name", None)
         merged_arguments.pop("customer_id", None)
         merged_arguments.pop("amount", None)
-    elif tool_name == "create_payment_link":
+    elif tool_name in _CUSTOMER_AMBIGUOUS_TOOLS:
         merged_arguments["customer_id"] = chosen["customerId"]
         merged_arguments.pop("customer_name", None)
 
